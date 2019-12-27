@@ -15,7 +15,7 @@ reg set_rdy;
 initial rdy     = 0;
 initial set_rdy = 0;
 
-reg [$clog2(BITS)-1:0] i;
+reg [clog2(BITS)-1:0] i;
 reg [BITS-1:0] curr_n, curr_d;
 reg [BITS-1:0] last_curr_n, last_curr_d;
 
@@ -35,6 +35,7 @@ always @(posedge clk) begin
         q[i] <= r_tmp >= curr_d;
         r    <= q[i] ? r_tmp - curr_d : r_tmp;
 
+        i <= i - 1;
         if (i == 0) begin
             set_rdy <= 1;
         end
@@ -51,5 +52,14 @@ always @* begin
         rdy = 0;
     end
 end
+
+function integer clog2;
+    input integer value;
+    begin
+        value = value-1;
+        for (clog2 = 0; value > 0; clog2 = clog2 + 1)
+            value = value >> 1;
+    end
+endfunction
 
 endmodule

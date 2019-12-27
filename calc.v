@@ -11,6 +11,7 @@ module calc (
     output reg out_empty
 );
 
+reg [15:0] last_out_top;
 initial out_error      = 0;
 initial out_stack_size = 0;
 initial out_empty      = 1;
@@ -30,11 +31,12 @@ reg [31:0] stack [511:0];
 reg [9:0] sp, next_sp;
 initial sp = -1;
 
-reg [31:0] top, next_top, last_top;
-
-reg set_top;
-reg [31:0] set_top_val;
+reg set_top, last_set_top;
+reg [31:0] set_top_val, last_set_top_val;
+reg [31:0] read_top;
 initial set_top = 0;
+
+reg [31:0] top, prev_top;
 
 reg error, next_error;
 initial error = 0;
@@ -58,19 +60,17 @@ always @(posedge clk) begin
     state <= next_state;
     div_mux <= next_div_mux;
 
-    last_top <= top;
+    last_out_top <= out_top;
+    prev_top <= top;
 
-    next_top = set_top ? set_top_val : stack[next_sp[8:0]];
-    top <= next_top;
-
+    read_top <= stack[next_sp[8:0]];
     if (set_top)
         stack[next_sp[8:0]] <= set_top_val;
 
+    last_set_top <= set_top;
+    last_set_top_val <= set_top_val;
+
     if (next_state == IDLE) begin
-        if (btn[0])
-            out_top <= next_top[31:16];
-        else
-            out_top <= next_top[15:0];
         out_stack_size <= next_sp + 1;
         out_empty <= next_sp[9];
         out_error <= next_error;
@@ -83,11 +83,17 @@ always @* begin
     next_div_mux = div_mux;
     next_state = IDLE;
 
+    top = last_set_top ? last_set_top_val : read_top;
     set_top = 0;
     set_top_val = 32'hxxxxxxxx;
+
     div_n = 32'hxxxxxxxx;
     div_d = 32'hxxxxxxxx;
     div_start = 0;
+
+    out_top = last_out_top;
+    if (state == IDLE)
+        out_top = btn[0] ? top[31:16] : top[15:0];
 
     if (btn[3] && btn[0]) begin
         next_error = 0;
@@ -172,7 +178,7 @@ always @* begin
                 next_error = 0;
             end
         end
-        3'b110: begin
+        3'b111: begin
             if (sp == -1 || sp == 0)
                 next_error = 1;
             else begin
@@ -184,22 +190,22 @@ always @* begin
     end
     OP_ADD: begin
         set_top = 1;
-        set_top_val = top + last_top;
+        set_top_val = top + prev_top;
         next_error = 0;
     end
     OP_SUB: begin
         set_top = 1;
-        set_top_val = top - last_top;
+        set_top_val = top - prev_top;
         next_error = 0;
     end
     OP_MUL: begin
         set_top = 1;
-        set_top_val = top * last_top;
+        set_top_val = top * prev_top;
         next_error = 0;
     end
     OP_DIV_START: begin
         div_n = top;
-        div_d = last_top;
+        div_d = prev_top;
         div_start = 1;
         next_state = OP_DIV_WAIT;
     end
@@ -213,13 +219,13 @@ always @* begin
     end
     OP_SWITCH_1: begin
         set_top = 1;
-        set_top_val = last_top;
+        set_top_val = prev_top;
         next_state = OP_SWITCH_2;
     end
     OP_SWITCH_2: begin
         next_sp = sp + 1;
         set_top = 1;
-        set_top_val = last_top;
+        set_top_val = prev_top;
         next_error = 0;
     end
     endcase
