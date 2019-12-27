@@ -47,6 +47,7 @@ wire div_rdy;
 initial div_start = 0;
 
 div DIV (
+    .clk(clk),
     .n(div_n), .d(div_d), .start(div_start),
     .q(div_q), .r(div_r), .rdy(div_rdy)
 );
