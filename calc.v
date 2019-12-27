@@ -16,15 +16,14 @@ initial out_error      = 0;
 initial out_stack_size = 0;
 initial out_empty      = 1;
 
-reg [7:0] state, next_state;
-localparam IDLE         = 8'b00000001;
-localparam OP_ADD       = 8'b00000010;
-localparam OP_SUB       = 8'b00000100;
-localparam OP_MUL       = 8'b00001000;
-localparam OP_DIV_START = 8'b00010000;
-localparam OP_DIV_WAIT  = 8'b00100000;
-localparam OP_SWITCH_1  = 8'b01000000;
-localparam OP_SWITCH_2  = 8'b10000000;
+reg [6:0] state, next_state;
+localparam IDLE         = 8'b0000001;
+localparam OP_ADD       = 8'b0000010;
+localparam OP_SUB       = 8'b0000100;
+localparam OP_MUL       = 8'b0001000;
+localparam OP_DIV_START = 8'b0010000;
+localparam OP_DIV_WAIT  = 8'b0100000;
+localparam OP_SWITCH    = 8'b1000000;
 initial state = IDLE;
 
 reg [31:0] stack [511:0];
@@ -183,7 +182,9 @@ always @* begin
                 next_error = 1;
             else begin
                 next_sp = sp - 1;
-                next_state = OP_SWITCH_1;
+                set_top = 1;
+                set_top_val = top;
+                next_state = OP_SWITCH;
             end
         end
         endcase
@@ -217,15 +218,10 @@ always @* begin
         end else
             next_state = OP_DIV_WAIT;
     end
-    OP_SWITCH_1: begin
-        set_top = 1;
-        set_top_val = prev_top;
-        next_state = OP_SWITCH_2;
-    end
-    OP_SWITCH_2: begin
+    OP_SWITCH: begin
         next_sp = sp + 1;
         set_top = 1;
-        set_top_val = prev_top;
+        set_top_val = read_top;
         next_error = 0;
     end
     endcase
