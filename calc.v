@@ -60,7 +60,6 @@ always @(posedge clk) begin
 
     last_top <= top;
 
-    reg [31:0] next_top;
     next_top = set_top ? set_top_val : stack[next_sp[8:0]];
     top <= next_top;
 
@@ -226,4 +225,4 @@ always @* begin
     endcase
 end
 
-endmodule;
+endmodule

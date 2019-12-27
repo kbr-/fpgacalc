@@ -35,6 +35,8 @@ calc CALC(
 display DISP(
     .clk(mclk), .d(top), .is_d(~empty),
     .an(an), .seg(seg)
-)
+);
 
 assign dp = 1;
+
+endmodule

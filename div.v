@@ -19,6 +19,8 @@ reg [$clog2(BITS)-1:0] i;
 reg [BITS-1:0] curr_n, curr_d;
 reg [BITS-1:0] last_curr_n, last_curr_d;
 
+reg [BITS-1:0] r_tmp;
+
 always @(posedge clk) begin
     last_curr_n <= curr_n;
     last_curr_d <= curr_d;
@@ -28,8 +30,7 @@ always @(posedge clk) begin
         r <= 0;
         set_rdy <= 0;
     end else if (!rdy) begin
-        wire [BITS-1:0] r_tmp;
-        assign r_tmp = {r[BITS-2:0], curr_n[i]};
+        r_tmp = {r[BITS-2:0], curr_n[i]};
 
         q[i] <= r_tmp >= curr_d;
         r    <= q[i] ? r_tmp - curr_d : r_tmp;
@@ -51,4 +52,4 @@ always @* begin
     end
 end
 
-endmodule;
+endmodule
