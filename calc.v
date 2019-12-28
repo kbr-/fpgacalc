@@ -11,34 +11,38 @@ module calc (
     output reg out_empty
 );
 
-reg [15:0] last_out_top;
+reg [15:0] prev_out_top;
 initial out_error      = 0;
 initial out_stack_size = 0;
 initial out_empty      = 1;
 
 reg [6:0] state, next_state;
-localparam IDLE         = 8'b0000001;
-localparam OP_ADD       = 8'b0000010;
-localparam OP_SUB       = 8'b0000100;
-localparam OP_MUL       = 8'b0001000;
-localparam OP_DIV_START = 8'b0010000;
-localparam OP_DIV_WAIT  = 8'b0100000;
-localparam OP_SWITCH    = 8'b1000000;
-initial state = IDLE;
+localparam IDLE         = 7'b0000001;
+localparam OP_ADD       = 7'b0000010;
+localparam OP_SUB       = 7'b0000100;
+localparam OP_MUL       = 7'b0001000;
+localparam OP_DIV_START = 7'b0010000;
+localparam OP_DIV_WAIT  = 7'b0100000;
+localparam OP_SWITCH    = 7'b1000000;
+initial state      = IDLE;
+initial next_state = IDLE;
 
 reg [31:0] stack [511:0];
 reg [9:0] sp, next_sp;
-initial sp = -1;
+localparam SP_EMPTY = 10'b1111111111;
+initial sp      = SP_EMPTY;
+initial next_sp = SP_EMPTY;
 
-reg set_top, last_set_top;
-reg [31:0] set_top_val, last_set_top_val;
+reg set_top, prev_set_top;
+reg [31:0] set_top_val, prev_set_top_val;
 reg [31:0] read_top;
 initial set_top = 0;
 
 reg [31:0] top, prev_top;
 
 reg error, next_error;
-initial error = 0;
+initial error      = 0;
+initial next_error = 0;
 
 reg div_start;
 reg div_mux, next_div_mux;
@@ -53,21 +57,24 @@ div DIV (
     .q(div_q), .r(div_r), .rdy(div_rdy)
 );
 
+reg [3:0] prev_btn;
+initial prev_btn = 0;
+
 always @(posedge clk) begin
     sp <= next_sp;
     error <= next_error;
     state <= next_state;
     div_mux <= next_div_mux;
 
-    last_out_top <= out_top;
+    prev_out_top <= out_top;
     prev_top <= top;
+    prev_set_top <= set_top;
+    prev_set_top_val <= set_top_val;
+    prev_btn <= btn;
 
     read_top <= stack[next_sp[8:0]];
     if (set_top)
         stack[next_sp[8:0]] <= set_top_val;
-
-    last_set_top <= set_top;
-    last_set_top_val <= set_top_val;
 
     if (next_state == IDLE) begin
         out_stack_size <= next_sp + 1;
@@ -82,7 +89,7 @@ always @* begin
     next_div_mux = div_mux;
     next_state = IDLE;
 
-    top = last_set_top ? last_set_top_val : read_top;
+    top = prev_set_top ? prev_set_top_val : read_top;
     set_top = 0;
     set_top_val = 32'hxxxxxxxx;
 
@@ -90,16 +97,16 @@ always @* begin
     div_d = 32'hxxxxxxxx;
     div_start = 0;
 
-    out_top = last_out_top;
+    out_top = prev_out_top;
     if (state == IDLE)
         out_top = btn[0] ? top[31:16] : top[15:0];
 
     if (btn[3] && btn[0]) begin
         next_error = 0;
-        next_sp = -1;
+        next_sp = SP_EMPTY;
     end else case(state)
     IDLE: begin
-        if (btn[1]) begin
+        if (btn[1] && !prev_btn) begin
             if (sp == 511)
                 next_error = 1;
             else begin
@@ -108,17 +115,17 @@ always @* begin
                 set_top_val = {24'h000000, sw};
                 next_error = 0;
             end
-        end else if (btn[2]) begin
-            if (sp == -1)
+        end else if (btn[2] && !prev_btn) begin
+            if (sp == SP_EMPTY)
                 next_error = 1;
             else begin
                 set_top = 1;
                 set_top_val = {top[23:0], sw};
                 next_error = 0;
             end
-        end else if (btn[3]) case (sw[2:0])
+        end else if (btn[3] && !prev_btn) case (sw[2:0])
         3'b000: begin
-            if (sp == -1 || sp == 0)
+            if (sp == SP_EMPTY || sp == 0)
                 next_error = 1;
             else begin
                 next_sp = sp - 1;
@@ -126,7 +133,7 @@ always @* begin
             end
         end
         3'b001: begin
-            if (sp == -1 || sp == 0)
+            if (sp == SP_EMPTY || sp == 0)
                 next_error = 1;
             else begin
                 next_sp = sp - 1;
@@ -134,7 +141,7 @@ always @* begin
             end
         end
         3'b010: begin
-            if (sp == -1 || sp == 0)
+            if (sp == SP_EMPTY || sp == 0)
                 next_error = 1;
             else begin
                 next_sp = sp - 1;
@@ -142,7 +149,7 @@ always @* begin
             end
         end
         3'b011: begin
-            if (sp == -1 || sp == 0 || top == 0)
+            if (sp == SP_EMPTY || sp == 0 || top == 0)
                 next_error = 1;
             else begin
                 next_sp = sp - 1;
@@ -151,7 +158,7 @@ always @* begin
             end
         end
         3'b100: begin
-            if (sp == -1 || sp == 0 || top == 0)
+            if (sp == SP_EMPTY || sp == 0 || top == 0)
                 next_error = 1;
             else begin
                 next_sp = sp - 1;
@@ -160,7 +167,7 @@ always @* begin
             end
         end
         3'b101: begin
-            if (sp == -1)
+            if (sp == SP_EMPTY)
                 next_error = 1;
             else begin
                 next_sp = sp - 1;
@@ -168,7 +175,7 @@ always @* begin
             end
         end
         3'b110: begin
-            if (sp == -1 || sp == 511)
+            if (sp == SP_EMPTY || sp == 511)
                 next_error = 1;
             else begin
                 next_sp = sp + 1;
@@ -178,7 +185,7 @@ always @* begin
             end
         end
         3'b111: begin
-            if (sp == -1 || sp == 0)
+            if (sp == SP_EMPTY || sp == 0)
                 next_error = 1;
             else begin
                 next_sp = sp - 1;

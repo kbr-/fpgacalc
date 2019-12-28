@@ -33,12 +33,11 @@ always @(posedge clk) begin
         r_tmp = {r[BITS-2:0], curr_n[i]};
 
         q[i] <= r_tmp >= curr_d;
-        r    <= q[i] ? r_tmp - curr_d : r_tmp;
+        r    <= r_tmp >= curr_d ? r_tmp - curr_d : r_tmp;
 
         i <= i - 1;
-        if (i == 0) begin
+        if (i == 0)
             set_rdy <= 1;
-        end
     end
 end
 
