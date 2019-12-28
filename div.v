@@ -11,28 +11,44 @@ module div #(parameter BITS = 32) (
     output reg rdy
 );
 
-initial rdy     = 0;
+initial rdy = 0;
 
 reg [clog2(BITS)-1:0] i;
-reg [BITS-1:0] curr_n, curr_d;
 
-reg [BITS-1:0] r_tmp;
+reg [BITS-1:0] abs_n, abs_d;
+reg sgn_n, sgn_d;
+
 always @(posedge clk) begin
     if (start) begin
-        curr_n <= n;
-        curr_d <= d;
+        abs_n <= n[BITS-1] ? -n : n;
+        abs_d <= d[BITS-1] ? -d : d;
+        sgn_n <= n[BITS-1];
+        sgn_d <= d[BITS-1];
         i <= BITS - 1;
         r <= 0;
         rdy <= 0;
-    end else if (!rdy) begin
-        r_tmp = {r[BITS-2:0], curr_n[i]};
+    end else if (!rdy) begin : loop
+        reg [BITS-1:0] r_tmp;
+        reg [BITS-1:0] q_tmp;
+        reg qi;
 
-        q[i] <= r_tmp >= curr_d;
-        r    <= r_tmp >= curr_d ? r_tmp - curr_d : r_tmp;
+        r_tmp = {r[BITS-2:0], abs_n[i]};
+        qi    = r_tmp >= abs_d;
+        if (qi)
+            r_tmp = r_tmp - abs_d;
+        q_tmp    = q;
+        q_tmp[i] = qi;
 
-        i <= i - 1;
-        if (i == 0)
+        q <= q_tmp;
+        r <= r_tmp;
+        if (i == 0) begin
             rdy <= 1;
+            if (sgn_n ^ sgn_d)
+                q <= -q_tmp;
+            if (sgn_n)
+                r <= -r_tmp;
+        end
+        i <= i - 1;
     end
 end
 
