@@ -2,11 +2,15 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE QuasiQuotes #-}
 
+import System.Process
+import System.FilePath
+import System.IO.Temp
 import Data.Bits
 import Data.Word
 import Data.Int
 import Prelude hiding ((/))
 import Test.QuickCheck
+import Test.QuickCheck.Monadic
 import Control.Arrow
 import Control.Monad.Except
 import Control.Monad.State
@@ -58,6 +62,29 @@ depth :: Expr -> Int
 depth (EOp _ a b) = max (depth a) (depth b) + 1
 depth _ = 0
 
+pExpr :: Expr -> String
+pExpr (EInt i) = show i
+pExpr (EOp op a b) = "(" ++ pExpr a ++ " " ++ pOp op ++ " " ++ pExpr b ++ ")"
+
+pOp :: Op -> String
+pOp = \case
+    Add -> "+"
+    Sub -> "-"
+    Mul -> "*"
+    Div -> "/"
+    Mod -> "%"
+
+hasDivByZero :: Expr -> Bool
+hasDivByZero (EInt _) = False
+hasDivByZero (EOp op a b)
+    =  hasDivByZero a
+    || hasDivByZero b
+    || ((op == Div || op == Mod) && eval b == 0)
+
+eval :: Expr -> Int32
+eval (EInt i) = i
+eval (EOp op a b) = evalOp op (eval a) (eval b)
+
 data Instr
     = IPush Word8
     | IShift Word8
@@ -65,6 +92,25 @@ data Instr
     | IPop
     | IDup
     | ISwap
+    deriving Show
+
+newtype Prog = Prog [Instr]
+    deriving Show
+
+instance Arbitrary Prog where
+    arbitrary = pure $ Prog example
+
+pProg :: Prog -> String
+pProg (Prog p) = unlines $ map pInstr p
+
+pInstr :: Instr -> String
+pInstr = \case
+    IPush w  -> "push " ++ show w
+    IShift w -> "shift " ++ show w
+    IOp op   -> "op " ++ show op
+    IPop     -> "pop"
+    IDup     -> "dup"
+    ISwap    -> "swap"
 
 data CState = CState
     { stack  :: [Int32]
@@ -85,7 +131,7 @@ emit :: String -> Z ()
 emit s = tell [s]
 
 exec :: [Instr] -> Z ()
-exec = mapM_ $ \i -> execInstr i >> assertState
+exec p = mapM_ (\(k, i) -> execInstr i >> assertState k) $ zip [1..] p
 
 execInstr :: Instr -> Z ()
 execInstr = \case
@@ -182,20 +228,20 @@ extendZ w = foldr (\b -> if testBit w b then flip setBit b else id) zeroBits [0.
 extendL :: Word8 -> Int32 -> Int32
 extendL w i = shiftL i 8 .|. extendZ w
 
-assertState :: Z ()
-assertState = do
+assertState :: Int -> Z ()
+assertState i = do
     CState{..} <- get
-    emit $ "`assert(out_err == " ++ show outErr ++ ")"
+    emit $ "`assert(out_err == " ++ show outErr ++ ", " ++ show i ++ ")"
     when (not $ null stack) $
-        emit $ "`assert(out_top == " ++ show (head stack) ++ ")"
-    emit $ "`assert(out_size == " ++ show (length stack) ++ ")"
-    emit $ "`assert(out_empty == " ++ (if null stack then "1" else "0") ++ ")"
+        emit $ "`assert(out_top == " ++ show (head stack) ++ ", " ++ show i ++ ")"
+    emit $ "`assert(out_size == " ++ show (length stack) ++ ", " ++ show i ++ ")"
+    emit $ "`assert(out_empty == " ++ (if null stack then "1" else "0") ++ ", " ++ show i ++ ")"
 
 mkTest :: [Instr] -> [String]
-mkTest p = runZ $ assertState >> exec p
+mkTest p = runZ $ assertState 0 >> exec p
 
-mkTest' :: [Instr] -> String
-mkTest' p = prologue ++ unlines (map ("    " ++) $ mkTest p) ++ epilogue
+mkTest' :: Prog -> String
+mkTest' (Prog p) = prologue ++ unlines (map ("    " ++) $ mkTest p) ++ epilogue
 
 example :: [Instr]
 example =
@@ -204,14 +250,53 @@ example =
     , IOp Div
     ]
 
+compile :: Expr -> Prog
+compile = undefined
+
+runTest
+    :: String     -- the test
+    -> [String]   -- paths to module files
+    -> IO String -- test output
+runTest test mods = withSystemTempDirectory "testrun" $ \dir -> do
+    let vPath = dir </> "tb.v"
+        tbPath = dir </> "tb"
+    writeFile vPath test
+    callProcess "iverilog" $ ["-o", tbPath, vPath] ++ mods
+    --(code, stdout, stderr) <- readProcessWithExitCode "vvp" [tbPath] ""
+    readProcess "vvp" [tbPath] ""
+
 main :: IO ()
-main = putStr $ mkTest' example
+main = quickCheck $ prop_RunProg
+
+prop_RunProg :: Prog -> Property
+prop_RunProg p@(Prog p') =
+    collect (length p') $
+    counterexample ("program:\n" ++ pProg p) $
+    monadicIO $ do
+        let testVerilog = mkTest' p
+        vvpOut <- run $ runTest testVerilog ["../calc.v", "../div.v"]
+        monitor $ counterexample $ "verilog:\n" ++ testVerilog
+        monitor $ counterexample $ "test output:\n" ++ vvpOut
+        assert $ last (lines vvpOut) == "PASS"
+
+prop_CalcExpr :: Expr -> Property
+prop_CalcExpr e = let p = compile e in
+    collect (depth e) $
+    not (hasDivByZero e) && depth e > 1 ==>
+    counterexample ("expression: " ++ pExpr e) $
+    counterexample ("program:\n" ++ pProg p) $
+    monadicIO $ do
+        let testVerilog = mkTest' p
+        vvpOut <- run $ runTest testVerilog ["../calc.v", "../div.v"]
+        monitor $ counterexample $ "verilog:\n" ++ testVerilog
+        monitor $ counterexample $ "test output:\n" ++ vvpOut
+        assert $ last (lines vvpOut) == "PASS"
 
 prologue :: String
 prologue = [r|
-`define assert(expr) \
+`define assert(expr, i) \
         if (!(expr)) begin \
-            $display("ASSERTION FAILED: expr at line %d", `__LINE__); \
+            $display("ASSERTION FAILED: expr at line %d after instruction %d", `__LINE__, i); \
             $finish; \
         end
 
