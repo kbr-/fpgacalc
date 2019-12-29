@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE QuasiQuotes #-}
 
+import Debug.Trace
 import System.Process
 import System.FilePath
 import System.IO.Temp
@@ -98,7 +99,17 @@ newtype Prog = Prog [Instr]
     deriving Show
 
 instance Arbitrary Prog where
-    arbitrary = pure $ Prog example
+    arbitrary = Prog <$> arbitrary
+
+instance Arbitrary Instr where
+    arbitrary = frequency $
+        [ (5, IPush <$> arbitrary)
+        , (2, IShift <$> arbitrary)
+        , (3, IOp <$> arbitrary)
+        , (1, pure IPop)
+        , (1, pure IDup)
+        , (1, pure ISwap)
+        ]
 
 pProg :: Prog -> String
 pProg (Prog p) = unlines $ map pInstr p
@@ -179,7 +190,7 @@ execShift w = runEZ $ do
 execOp :: Op -> Z ()
 execOp op = runEZ $ do
     s@CState{..} <- get
-    when (length stack < 1) $
+    when (length stack < 2) $
         throwError ()
     when (elem op [Div, Mod] && head stack == 0) $
         throwError ()
@@ -202,7 +213,7 @@ execDup = runEZ $ do
 execSwap :: Z ()
 execSwap = runEZ $ do
     s@CState{..} <- get
-    when (length stack < 1) $
+    when (length stack < 2) $
         throwError ()
     put $ s { stack = head (tail stack) : head stack : tail (tail stack) }
 
@@ -251,11 +262,17 @@ example =
     ]
 
 compile :: Expr -> Prog
-compile = undefined
+compile e = Prog $ reverse $ go e
+  where
+    go (EInt i) = map (IShift . ithWord i) [0,1,2] ++ [IPush (ithWord i 3)]
+    go (EOp op a b) = IOp op : go b ++ go a
+
+ithWord :: Int32 -> Int -> Word8
+ithWord x i = foldr (\b -> if testBit x b then flip setBit (b-8*i) else id) zeroBits [8*i..8*(i+1)-1]
 
 runTest
-    :: String     -- the test
-    -> [String]   -- paths to module files
+    :: String    -- the test
+    -> [String]  -- paths to module files
     -> IO String -- test output
 runTest test mods = withSystemTempDirectory "testrun" $ \dir -> do
     let vPath = dir </> "tb.v"
@@ -286,8 +303,11 @@ prop_CalcExpr e = let p = compile e in
     counterexample ("expression: " ++ pExpr e) $
     counterexample ("program:\n" ++ pProg p) $
     monadicIO $ do
+        --traceM $ "testing expr: " ++ pExpr e
+        --traceM $ "prog: " ++ pProg p
         let testVerilog = mkTest' p
         vvpOut <- run $ runTest testVerilog ["../calc.v", "../div.v"]
+        --traceM $ "vvpOut:\n" ++ vvpOut
         monitor $ counterexample $ "verilog:\n" ++ testVerilog
         monitor $ counterexample $ "test output:\n" ++ vvpOut
         assert $ last (lines vvpOut) == "PASS"
@@ -324,6 +344,7 @@ initial begin
 
 epilogue :: String
 epilogue = [r|
+    #100
     $display("PASS"); $finish;
 end
 
