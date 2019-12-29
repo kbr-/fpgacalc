@@ -24,7 +24,7 @@ always @(posedge mclk) begin
     btn2 <= btn1;
 end
 
-wire [15:0] top;
+wire [31:0] top;
 wire empty;
 
 calc CALC(
@@ -33,7 +33,7 @@ calc CALC(
 );
 
 display DISP(
-    .clk(mclk), .d(top), .is_d(~empty),
+    .clk(mclk), .d(btn[0] ? top[31:16] : top[15:0]), .is_d(~empty),
     .an(an), .seg(seg)
 );
 

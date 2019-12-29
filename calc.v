@@ -6,12 +6,12 @@ module calc (
     input wire [3:0] btn,
 
     output reg out_error,
-    output reg [15:0] out_top,
+    output reg [31:0] out_top,
     output reg [6:0] out_stack_size,
     output reg out_empty
 );
 
-reg [15:0] prev_out_top;
+reg [31:0] prev_out_top;
 initial out_error      = 0;
 initial out_stack_size = 0;
 initial out_empty      = 1;
@@ -57,7 +57,7 @@ div DIV (
     .q(div_q), .r(div_r), .rdy(div_rdy)
 );
 
-reg [3:0] prev_btn;
+reg [3:1] prev_btn;
 initial prev_btn = 0;
 
 always @(posedge clk) begin
@@ -70,7 +70,7 @@ always @(posedge clk) begin
     prev_top <= top;
     prev_set_top <= set_top;
     prev_set_top_val <= set_top_val;
-    prev_btn <= btn;
+    prev_btn <= btn[3:1];
 
     read_top <= stack[next_sp[8:0]];
     if (set_top)
@@ -99,14 +99,14 @@ always @* begin
 
     out_top = prev_out_top;
     if (state == IDLE)
-        out_top = btn[0] ? top[31:16] : top[15:0];
+        out_top = top;
 
     if (btn[3] && btn[0]) begin
         next_error = 0;
         next_sp = SP_EMPTY;
     end else case(state)
     IDLE: begin
-        if (btn[1] && !prev_btn) begin
+        if (btn[1] && !prev_btn[1]) begin
             if (sp == 511)
                 next_error = 1;
             else begin
@@ -115,7 +115,7 @@ always @* begin
                 set_top_val = {24'h000000, sw};
                 next_error = 0;
             end
-        end else if (btn[2] && !prev_btn) begin
+        end else if (btn[2] && !prev_btn[2]) begin
             if (sp == SP_EMPTY)
                 next_error = 1;
             else begin
@@ -123,7 +123,7 @@ always @* begin
                 set_top_val = {top[23:0], sw};
                 next_error = 0;
             end
-        end else if (btn[3] && !prev_btn) case (sw[2:0])
+        end else if (btn[3] && !prev_btn[3]) case (sw[2:0])
         3'b000: begin
             if (sp == SP_EMPTY || sp == 0)
                 next_error = 1;
